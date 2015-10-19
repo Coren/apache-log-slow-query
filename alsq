@@ -1,0 +1,55 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'apachelogregex'
+
+format = '%h %l %u %t \"%r\" %>s %b %D'
+
+parser = ApacheLogRegex.new(format)
+
+log_file = ARGV.pop
+
+class Access
+  attr_accessor :max, :min, :mean, :data, :script
+
+  def initialize(s)
+    self.script = s
+    self.data = []
+  end
+
+end
+
+result = {}
+
+File.readlines(log_file).each do |line|
+  data = parser.parse(line)
+  query = data['%r']
+  next unless query.match(%r{(json|ajax|html)})
+  script = query.grep(%r{.* (/[^? ]*).*}){$1}
+  result[script] ||= Access.new(script)
+  result[script].data << data['%D'].to_i
+end
+
+require 'pp'
+values = result.values
+values.each do |v| 
+  data = v.data
+  v.max = data.max
+  v.min = data.min
+  v.mean = (data.inject(0){|s,v| s+=v}) / data.size
+end
+
+values.sort! {|a,b| a.mean <=> b.mean }
+
+printf "%90s %10s %10s %10s\n" % %w(query mean max min)
+
+m = 1000000
+
+50.times do 
+  v = values.pop
+  break unless v
+  
+  printf "%90s %10.3f %10.3f %10.3f\n" % [ v.script, v.mean.to_f / m, v.max.to_f / m, v.min.to_f / m ] 
+end
+
+
